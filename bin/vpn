@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+
+CLI_NAME="$(basename "$0")"
+
+# =================================================================== #
+# Global Configuration
+# ------------------------------------------------------------------- #
+
+[ -z "${OPENVPN_PROFILE}" ] && OPENVPN_PROFILE="pia/us-seattle"
+[ -z "${OPENVPN_CONFIG_DIR}" ] && OPENVPN_CONFIG_DIR="/etc/openvpn"
+
+# =================================================================== #
+# Utility Functions
+# ------------------------------------------------------------------- #
+
+dim() {
+  echo -e "\x1B[90m$*\x1B[0m"
+}
+
+string_repeat() {
+  local STRING="$1"
+  local N="$2"
+  for i in $(seq 1 "${N}"); do
+    printf "${STRING}"
+  done
+}
+
+table_header() {
+  dim "┏━$(string_repeat "━" "$1")━┯━$(string_repeat "━" "$2")━┓"
+}
+
+table_row() {
+  echo -e "$(dim "┃") $1 $(dim "│") $2 $(dim "┃")"
+}
+
+table_divider() {
+  dim "┠─$(string_repeat "─" "$1")─┼─$(string_repeat "─" "$2")─┨"
+}
+
+table_footer() {
+  dim "┗━$(string_repeat "━" "$1")━┷━$(string_repeat "━" "$2")━┛"
+}
+
+table() {
+  local TABLE_TYPE="$1"
+  shift
+
+  local TABLE_STRING=""
+  local NAME_WIDTH="0"
+  local DESCRIPTION_WIDTH="0"
+
+  while [ $# -gt 0 ]; do
+    local NAME="$1"
+    local DESCRIPTION="$2"
+    shift 2
+
+    NAME_WIDTH="$(printf "${NAME}" | wc -c)"
+    DESCRIPTION_WIDTH="$(printf "${DESCRIPTION}" | wc -c)"
+
+    case "${TABLE_TYPE}" in
+      variable)
+        TABLE_STRING="${TABLE_STRING}$(table_row "$(format_variable "${NAME}")" "${DESCRIPTION}")\n"
+        ;;
+      enum)
+        TABLE_STRING="${TABLE_STRING}$(table_row "$(format_enum_value "${NAME}")" "${DESCRIPTION}")\n"
+        ;;
+      *)
+        TABLE_STRING="${TABLE_STRING}$(table_row "${NAME}" "${DESCRIPTION}")\n"
+        ;;
+    esac
+    if [ $# -gt 0 ]; then
+      TABLE_STRING="${TABLE_STRING}$(table_divider "${NAME_WIDTH}" "${DESCRIPTION_WIDTH}")\n"
+    fi
+  done
+  table_header "${NAME_WIDTH}" "${DESCRIPTION_WIDTH}"
+  echo -en "${TABLE_STRING}"
+  table_footer "${NAME_WIDTH}" "${DESCRIPTION_WIDTH}"
+}
+
+usage() {
+  echo -e "💻 $(format_command "${CLI_NAME}") $*"
+}
+
+format_command() {
+  echo -e "\x1B[32;1m$1\x1B[0m"
+}
+
+format_enum_value() {
+  echo -e "\x1B[36m$1\x1B[0m"
+}
+
+format_enum() {
+  while [ $# -gt 0 ]; do
+    echo -en "$(format_enum_value "$1")"
+    shift
+    if [ $# -gt 0 ]; then
+      printf '|'
+    fi
+  done
+}
+
+format_error() {
+  echo -e "⛔ \x1B[31;1m$1\x1B[0m"
+}
+
+format_profile() {
+  echo -e "⚡\x1B[93m$1\x1B[0m"
+}
+
+format_success() {
+  echo -e "✅ $1"
+}
+
+format_variable() {
+  echo -e "\x1B[33m$1\x1B[0m"
+}
+
+# =================================================================== #
+# Commands
+# ------------------------------------------------------------------- #
+
+command_list() {
+  (
+    cd "${OPENVPN_CONFIG_DIR}/client"
+    for PROFILE in $(find * -type f -name '*.ovpn' | sed 's|.ovpn||g' | sort); do
+      format_profile "${PROFILE}"
+    done
+  )
+}
+
+command_up() {
+  local PROFILE="$1"
+
+  if [ -z "${PROFILE}" ]; then
+    PROFILE="${OPENVPN_PROFILE}"
+  fi
+
+  echo -e "Connecting to VPN using profile $(format_profile "${PROFILE}")"
+  sudo openvpn "${OPENVPN_CONFIG_DIR}/client/${PROFILE}.ovpn"
+}
+
+# =================================================================== #
+# Entry-point
+# ------------------------------------------------------------------- #
+
+main() {
+  local COMMAND_NAME="$1"
+  shift
+
+  case "${COMMAND_NAME}" in
+    up)
+      command_up $*
+      ;;
+    list)
+      command_list $*
+      ;;
+    *)
+      >&2 cat <<EOF
+$(usage $(format_enum list up))
+
+Manages this machine's OpenVPN client connection.
+
+$(table enum \
+  "list" "Lists the available VPN connection profiles.       " \
+  "up  " "Establishes a VPN connection using a named profile." \
+)
+
+EOF
+      exit 1
+      ;;
+  esac
+}
+
+main $*
